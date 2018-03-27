@@ -5,4 +5,4 @@ display: 100
 max_iter: 2000
 momentum: 0.95
 snapshot_prefix: "simple_mlp"
-solver_mode: CPU
+solver_mode: GPU
