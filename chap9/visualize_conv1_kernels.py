@@ -12,8 +12,8 @@ WEIGHTS_FILE = 'freq_regression_iter_10000.caffemodel'
 DEPLOY_FILE = 'deploy.prototxt'
 
 net = caffe.Net(DEPLOY_FILE, WEIGHTS_FILE, caffe.TEST)
+# kernels.shape = (96, 1, 5, 5)
 kernels = net.params['conv1'][0].data
-
 kernels -= kernels.min()
 kernels /= kernels.max()
 
@@ -22,8 +22,12 @@ for kernel in kernels:
     zoomed_in_kernels.append(cv2.resize(kernel[0], (ZOOM_IN_SIZE, ZOOM_IN_SIZE), interpolation=cv2.INTER_NEAREST))
 
 # plot 12*8 squares kernels
-half_pad = PAD_SIZE / 2
-padded_size = ZOOM_IN_SIZE+PAD_SIZE
+half_pad = PAD_SIZE // 2
+padded_size = ZOOM_IN_SIZE+PAD_SIZE # 54
+
+# now zoomed_in_kernels.shape = (96, 50, 50)
+# after padding, it will be (96, 54, 54)
+# the padding below meaning pad 0 elems on the first dimension, 2 on 2nd 3rd dimens.
 padding = ((0, 0), (half_pad, half_pad), (half_pad, half_pad))
 
 padded_kernels = np.pad(zoomed_in_kernels, padding, 'constant', constant_values=1)
