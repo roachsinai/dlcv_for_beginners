@@ -56,7 +56,8 @@ optimizer_params = {
 }
 checkpoint = mx.callback.do_checkpoint('mnist_lenet', period=5)
 
-mod = mx.mod.Module(lenet5, context=mx.gpu(2))
+# 用Module封装，使用GPU进行训练
+mod = mx.mod.Module(lenet5, context=mx.gpu(0))
 mod.fit(train_dataiter,
         eval_data=val_dataiter,
         optimizer_params=optimizer_params,

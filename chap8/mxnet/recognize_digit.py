@@ -8,7 +8,7 @@ import mxnet as mx
 
 input_path = sys.argv[1].rstrip(os.sep)
 
-mod = mx.mod.Module.load('mnist_lenet', 35, context=mx.gpu(2))
+mod = mx.mod.Module.load('mnist_lenet', 35, context=mx.gpu(0))
 mod.bind(
     data_shapes=[('data', (1, 1, 28, 28))], 
     for_training=False)

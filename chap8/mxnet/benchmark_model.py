@@ -9,7 +9,7 @@ benchmark_dataiter = mx.io.ImageRecordIter(
     scale=0.00390625,
 )
 
-mod = mx.mod.Module.load('mnist_lenet', 35, context=mx.gpu(2))
+mod = mx.mod.Module.load('mnist_lenet', 35, context=mx.gpu(0))
 mod.bind(
     data_shapes=benchmark_dataiter.provide_data, 
     label_shapes=benchmark_dataiter.provide_label, 
