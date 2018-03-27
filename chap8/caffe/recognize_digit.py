@@ -3,6 +3,7 @@ sys.path.append('/path/to/caffe/python')
 import numpy as np
 import cv2
 import caffe
+import os
 
 MEAN = 128
 SCALE = 0.00390625
@@ -18,6 +19,7 @@ with open(imglist, 'r') as f:
     line = f.readline()
     while line:
         imgpath, label = line.split()
+        imgpath = os.path.join("..", "data", imgpath)
         line = f.readline()
         image = cv2.imread(imgpath, cv2.IMREAD_GRAYSCALE).astype(np.float) - MEAN
         image *= SCALE
