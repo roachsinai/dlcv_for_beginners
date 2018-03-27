@@ -5,7 +5,7 @@ from matplotlib import pyplot
 # Load the dataset
 print('Loading data from mnist.pkl.gz ...')
 with gzip.open('mnist.pkl.gz', 'rb') as f:
-    train_set, valid_set, test_set = pickle.load(f)
+    train_set, valid_set, test_set = pickle.load(f, encoding='latin1')
 
 imgs_dir = 'mnist'
 os.system('mkdir -p {}'.format(imgs_dir))
@@ -21,4 +21,3 @@ for dataname, dataset in datasets.items():
         pyplot.imsave(filepath, img, cmap='gray')
         if (i+1) % 10000 == 0:
             print('{} images converted!'.format(i+1))
-
