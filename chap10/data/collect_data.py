@@ -1,76 +1,255 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @Author: loveNight
+# @Date:   2015-10-28 19:59:24
+# @Last Modified by:   roachsinai
+# @Last Modified time: 2018-03-29 16:44:38
+
+
+import urllib
+import requests
 import os
 import re
-import urllib
-from multiprocessing import Process
+import sys
+import time
+import threading
+from datetime import datetime as dt
+from multiprocessing.dummy import Pool
+from multiprocessing import Queue
 
-SUPPORTED_FORMATS = ['jpg', 'png', 'jpeg']
-URL_TEMPLATE = r'http://image.b***u.com/search/flip?tn=b***uimage&ie=utf-8&word={keyword}&pn={index}'
 
-def download_images_from_b***u(dir_name, keyword, start_index, end_index):
-    index = start_index
-    while index < end_index:
-        url = URL_TEMPLATE.format(keyword=keyword, index=index)
+class BaiduImgDownloader(object):
+
+    """百度图片下载工具，目前只支持单个关键词"""
+
+    # 解码网址用的映射表
+    str_table = {
+        '_z2C$q': ':',
+        '_z&e3B': '.',
+        'AzdH3F': '/'
+    }
+
+    char_table = {
+        'w': 'a',
+        'k': 'b',
+        'v': 'c',
+        '1': 'd',
+        'j': 'e',
+        'u': 'f',
+        '2': 'g',
+        'i': 'h',
+        't': 'i',
+        '3': 'j',
+        'h': 'k',
+        's': 'l',
+        '4': 'm',
+        'g': 'n',
+        '5': 'o',
+        'r': 'p',
+        'q': 'q',
+        '6': 'r',
+        'f': 's',
+        'p': 't',
+        '7': 'u',
+        'e': 'v',
+        'o': 'w',
+        '8': '1',
+        'd': '2',
+        'n': '3',
+        '9': '4',
+        'c': '5',
+        'm': '6',
+        '0': '7',
+        'b': '8',
+        'l': '9',
+        'a': '0'
+    }
+
+    re_objURL = re.compile(r'"objURL":"(.*?)".*?"type":"(.*?)"')
+    re_downNum = re.compile(r"已下载\s(\d+)\s张图片")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.71 Safari/537.36",
+        "Accept-Encoding": "gzip, deflate, sdch",
+    }
+
+    SUPPORTED_FORMATS = ['jpg', 'png', 'jpeg']
+
+    def __init__(self, class_id, word, pic_num_each_class, info_path='info', processNum=30):
+        if " " in word:
+            raise AttributeError("本脚本仅支持单个关键字")
+        self.dirpath = '{:0>3d}'.format(class_id)
+        self.word = word
+        self.pic_num = pic_num_each_class
+        self.jsonUrlFile = '{}{}{}_jsonUrl.txt'.format(info_path, os.sep, self.dirpath)
+        self.logFile =  '{}{}{}_logInfo.txt'.format(info_path, os.sep, self.dirpath)
+        self.errorFile =  '{}{}{}_errorUrl.txt'.format(info_path, os.sep, self.dirpath)
+        if not os.path.exists(info_path):
+            os.mkdir(info_path)
+        if not os.path.exists(self.dirpath):
+            os.mkdir(self.dirpath)
+        if os.path.exists(self.jsonUrlFile):
+            os.remove(self.jsonUrlFile)
+        if os.path.exists(self.logFile):
+        	os.remove(self.logFile)
+        if os.path.exists(self.errorFile):
+        	os.remove(self.errorFile)
+
+        self.char_table = {ord(key): ord(value)
+                           for key, value in BaiduImgDownloader.char_table.items()}
+        self.pool = Pool(processNum)
+        self.session = requests.Session()
+        self.session.headers = BaiduImgDownloader.headers
+        self.queue = Queue()
+        self.messageQueue = Queue()
+        self.index = 0 # 图片起始编号，牵涉到计数，不要更改
+        self.promptNum = 100 # 下载几张图片提示一次
+        self.lock = threading.Lock()
+        self.delay = 1.5  # 网络请求太频繁会被封
+        self.QUIT = "QUIT"  # Queue中表示任务结束
+        self.printPrefix = "**" # 用于指定在控制台输出
+
+    def start(self):
+        # 控制台输出线程
+        t = threading.Thread(target=self.__log)
+        t.setDaemon(True)
+        t.start()
+        self.messageQueue.put(self.printPrefix + "脚本开始执行")
+        start_time = dt.now()
+        urls = self.__buildUrls()
+        self.messageQueue.put(self.printPrefix + "已获取 %s 个Json请求网址" % len(urls))
+        # 解析出所有图片网址，该方法会阻塞直到任务完成
+        self.pool.map(self.__resolveImgUrl, urls)
+        while self.queue.qsize():
+            imgs = self.queue.get()
+            self.pool.map_async(self.__downImg, imgs)
+        self.pool.close()
+        self.pool.join()
+        self.messageQueue.put(self.printPrefix + "下载完成！已下载 %s 张图片，总用时 %s" %
+                              (self.index, dt.now() - start_time))
+        self.messageQueue.put(self.printPrefix + "请到 %s 查看结果！" % self.dirpath)
+        self.messageQueue.put(self.printPrefix + "错误信息保存在 %s" % self.errorFile)
+        self.messageQueue.put(self.QUIT)
+
+
+    def __log(self):
+        """控制台输出，加锁以免被多线程打乱"""
+        with open(self.logFile, "w", encoding = "utf-8") as f:
+            while True:
+                message = self.messageQueue.get()
+                if message == self.QUIT:
+                    break
+                message = str(dt.now()) + " " + message
+                if self.printPrefix  in message:
+                    print(message)
+                elif "已下载" in message:
+                    # 下载N张图片提示一次
+                    downNum = self.re_downNum.findall(message)
+                    if downNum and int(downNum[0]) % self.promptNum == 0:
+                        print(message)
+                f.write(message + '\n')
+                f.flush()
+
+    def __getIndex(self):
+        """获取文件编号"""
+        self.lock.acquire()
         try:
-            html_text = urllib.urlopen(url).read().decode('utf-8', 'ignore')
-            image_urls = re.findall(r'"objURL":"(.*?)"', html_text)
-            if not image_urls:
-                print('Cannot retrieve anymore image urls \nStopping ...'.format(url))
-                break
-        except IOError as e:
-            print(e)
-            print('Cannot open {}. \nStopping ...'.format(url))
-            break
+            return self.index
+        finally:
+            self.index += 1
+            self.lock.release()
 
-        downloaded_urls = []
-        for url in image_urls:
-            filename = url.split('/')[-1]
-            ext = filename[filename.rfind('.')+1:]
-            if ext.lower() not in SUPPORTED_FORMATS:
-                index += 1
-                continue
-            filename = '{}/{:0>6d}.{}'.format(dir_name, index, ext)
-            cmd = 'wget "{}" -t 3 -T 5 -O {}'.format(url, filename)
-            os.system(cmd)
-            
-            if os.path.exists(filename) and os.path.getsize(filename) > 1024:
-                index_url = '{:0>6d},{}'.format(index, url)
-                downloaded_urls.append(index_url)
-            else:
-                os.system('rm {}'.format(filename))
+    def decode(self, url):
+        """解码图片URL
+        解码前：
+        ippr_z2C$qAzdH3FAzdH3Ffl_z&e3Bftgwt42_z&e3BvgAzdH3F4omlaAzdH3Faa8W3ZyEpymRmx3Y1p7bb&mla
+        解码后：
+        http://s9.sinaimg.cn/mw690/001WjZyEty6R6xjYdtu88&690
+        """
+        # 先替换字符串
+        for key, value in self.str_table.items():
+            url = url.replace(key, value)
+        # 再替换剩下的字符
+        return url.translate(self.char_table)
 
-            index += 1
-            if index >= end_index:
-                break
+    def __buildUrls(self):
+        """json请求网址生成器"""
+        word = urllib.parse.quote(self.word)
+        url = r"http://image.baidu.com/search/acjson?tn=resultjson_com&ipn=rj&ct=201326592&fp=result&queryWord={word}&cl=2&lm=-1&ie=utf-8&oe=utf-8&st=-1&ic=0&word={word}&face=0&istype=2nc=1&pn={pn}&rn=60"
+        time.sleep(self.delay)
+        html = self.session.get(url.format(word=word, pn=0), timeout = 15).content.decode('utf-8', 'ignore')
+        results = re.findall(r'"displayNum":(\d+),', html)
+        urls = [url.format(word=word, pn=x)
+                for x in range(0, self.pic_num + 1, 60)]
+        with open(self.jsonUrlFile, "w", encoding="utf-8") as f:
+            for url in urls:
+                f.write(url + "\n")
+        return urls
 
-        with open('{}_urls.txt'.format(dir_name), 'a') as furls:
-            urls_text = '{}\n'.format('\n'.join(downloaded_urls))
-            if len(urls_text) > 11:
-                furls.write(urls_text)
+    def __resolveImgUrl(self, url):
+        """从指定网页中解析出图片URL"""
+        time.sleep(self.delay)
+        html = self.session.get(url, timeout = 15).content.decode('utf-8')
+        datas = self.re_objURL.findall(html)
+        imgs = [Image(self.decode(x[0]), x[1]) for x in datas]
+        self.messageQueue.put(self.printPrefix + "已解析出 %s 个图片网址" % len(imgs))
+        self.queue.put(imgs)
 
-def download_images(keywords, num_per_kw, procs_per_kw):
-    args_list = []
-    for class_id, keyword in enumerate(keywords):
-        dir_name = '{:0>3d}'.format(class_id)
-        os.system('mkdir -p {}'.format(dir_name))
-        num_per_proc = int(round(float(num_per_kw/procs_per_kw)))
-        for i in range(procs_per_kw):
-            start_index = i * num_per_proc
-            end_index = start_index + num_per_proc - 1
-            args_list.append((dir_name, keyword, start_index, end_index))
+    def __downImg(self, img):
+        """下载单张图片，传入的是Image对象"""
+        """在爬取的URL中，下载制定格式的图像"""
+        if img.type in self.SUPPORTED_FORMATS:
+            imgUrl = img.url
+                # self.messageQueue.put("线程 %s 正在下载 %s " %
+            #          (threading.current_thread().name, imgUrl))
+            try:
+                time.sleep(self.delay)
+                res = self.session.get(imgUrl, timeout = 15)
+                message = None
+                if str(res.status_code)[0] == "4":
+                    message = "\n%s： %s" % (res.status_code, imgUrl)
+                elif "text/html" in res.headers["Content-Type"]:
+                    message = "\n无法打开图片： %s" % imgUrl
+            except Exception as e:
+                message = "\n抛出异常： %s\n%s" % (imgUrl, str(e))
+            finally:
+                if message:
+                    self.messageQueue.put(message)
+                    self.__saveError(message)
+                    return
+            index = self.__getIndex()
+            # index从0开始
+            self.messageQueue.put("已下载 %s 张图片：%s" % (index + 1, imgUrl))
+            filename = os.path.join(self.dirpath, str(index) + "." + img.type)
+            filename = "{}{}{:0>6d}.{}".format(self.dirpath, os.sep, index ,img.type)
+            with open(filename, "wb") as f:
+                f.write(res.content)
 
-    processes = [Process(target=download_images_from_b***u, args=x) for x in args_list]
+    def __saveError(self, message):
+        self.lock.acquire()
+        try:
+            with open(self.errorFile, "a", encoding="utf-8") as f:
+                f.write(message)
+        finally:
+            self.lock.release()
 
-    print('Starting to download images with {} processes ...'.format(len(processes)))
 
-    for p in processes:
-        p.start()
+class Image(object):
 
-    for p in processes:
-        p.join()
+    """图片类，保存图片信息"""
 
-    print('Done!')
+    def __init__(self, url, type):
+        super(Image, self).__init__()
+        self.url = url
+        self.type = type
 
-if __name__ == "__main__":
-    with open('keywords.txt', 'rb') as f:
+
+if __name__ == '__main__':
+    with open('keywords.txt', 'r') as f:
         foods = f.read().split()
-    download_images(foods, 2000, 3)
+    print("欢迎使用百度图片下载脚本！\n目前仅支持单个关键词。")
+    print("=" * 50)
+
+    for class_id, food in enumerate(foods):
+        down = BaiduImgDownloader(class_id, food, 2000)
+        print("开始爬取××{}××图片，{}张...".format(food, 2000))
+        down.start()
