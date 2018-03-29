@@ -1,7 +1,8 @@
 import os
 import sys
 import cv2
-from collect_data import SUPPORTED_FORMATS
+
+SUPPORTED_FORMATS = ['jpg', 'png', 'jpeg']
 
 input_path = sys.argv[1]
 

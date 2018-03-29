@@ -10,7 +10,6 @@ import urllib
 import requests
 import os
 import re
-import sys
 import time
 import threading
 from datetime import datetime as dt
@@ -176,8 +175,6 @@ class BaiduImgDownloader(object):
         word = urllib.parse.quote(self.word)
         url = r"http://image.baidu.com/search/acjson?tn=resultjson_com&ipn=rj&ct=201326592&fp=result&queryWord={word}&cl=2&lm=-1&ie=utf-8&oe=utf-8&st=-1&ic=0&word={word}&face=0&istype=2nc=1&pn={pn}&rn=60"
         time.sleep(self.delay)
-        html = self.session.get(url.format(word=word, pn=0), timeout = 15).content.decode('utf-8', 'ignore')
-        results = re.findall(r'"displayNum":(\d+),', html)
         urls = [url.format(word=word, pn=x)
                 for x in range(0, self.pic_num + 1, 60)]
         with open(self.jsonUrlFile, "w", encoding="utf-8") as f:
