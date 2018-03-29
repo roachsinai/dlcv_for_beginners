@@ -16,7 +16,7 @@ def plot_confusion_matrix(cm, classes,
     plt.yticks(tick_marks, classes)
 
     if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        cm = cm / cm.sum(axis=1)[:, np.newaxis]
         print("Normalized confusion matrix")
     else:
         print('Confusion matrix, without normalization')
@@ -25,14 +25,20 @@ def plot_confusion_matrix(cm, classes,
 
     thresh = cm.max() / 2.
     for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        plt.text(j, i, cm[i, j],
-                 horizontalalignment="center",
-                 color="white" if cm[i, j] > thresh else "black")
+        if normalize:
+            plt.text(j, i, round(cm[i, j], 2),
+                     horizontalalignment="center",
+                     color="white" if cm[i, j] > thresh else "black")
+        else:
+            plt.text(j, i, cm[i, j],
+                    horizontalalignment="center",
+                    color="white" if cm[i, j] > thresh else "black")
 
     plt.tight_layout()
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
 
+# 统计真实标签和预测标签
 result_filepath = 'val_results.txt'
 
 true_labels = []
@@ -51,5 +57,8 @@ with open(result_filepath, 'r') as f:
 print('Accuracy = {:.2f}%'.format(float(n_correct)/float(len(true_labels))*100))
 cnf_mat = confusion_matrix(true_labels, pred_labels)
 foods = ['kaoya', 'yangrouchuan', 'shuizhurou', 'jitang', 'maxiao', 'miantiao', 'baozi']
-plot_confusion_matrix(cnf_mat, classes=foods)
-plt.show()
+
+if __name__ ==  "__main__":
+    # 每个类别样本数量不同的时候，设置normalize
+    plot_confusion_matrix(cnf_mat, classes=foods, normalize=True)
+    plt.show()
