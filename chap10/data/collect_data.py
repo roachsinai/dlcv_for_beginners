@@ -15,6 +15,8 @@ import threading
 from datetime import datetime as dt
 from multiprocessing.dummy import Pool
 from multiprocessing import Queue
+from multiprocessing import Process
+import multiprocessing
 
 
 class BaiduImgDownloader(object):
@@ -185,7 +187,7 @@ class BaiduImgDownloader(object):
     def __resolveImgUrl(self, url):
         """从指定网页中解析出图片URL"""
         time.sleep(self.delay)
-        html = self.session.get(url, timeout = 15).content.decode('utf-8')
+        html = self.session.get(url, timeout = 15).content.decode('utf-8', 'ignore')
         datas = self.re_objURL.findall(html)
         imgs = [Image(self.decode(x[0]), x[1]) for x in datas]
         self.messageQueue.put(self.printPrefix + "已解析出 %s 个图片网址" % len(imgs))
@@ -239,14 +241,34 @@ class Image(object):
         self.url = url
         self.type = type
 
+def down_image(foods, start_index, images_per_food):
+    for id, food in enumerate(foods):
+        down = BaiduImgDownloader(start_index + id, food, images_per_food)
+        print("开始爬取××{}××图片，{}张...".format(food, images_per_food))
+        down.start()
+
 
 if __name__ == '__main__':
+    num_cpus =multiprocessing.cpu_count()
     with open('keywords.txt', 'r') as f:
         foods = f.read().split()
     print("欢迎使用百度图片下载脚本！\n目前仅支持单个关键词。")
     print("=" * 50)
 
-    for class_id, food in enumerate(foods):
-        down = BaiduImgDownloader(class_id, food, 2000)
-        print("开始爬取××{}××图片，{}张...".format(food, 2000))
-        down.start()
+    processes = []
+
+    food_per_proc = len(foods) // num_cpus
+    residuals = len(foods) % num_cpus
+    end_index = 0
+    for i in range(num_cpus):
+        start_index = end_index
+        end_index = start_index + food_per_proc
+        if residuals != 0:
+            end_index += 1
+            residuals -= 1
+        processes.append(Process(target=down_image, args=(foods[start_index: end_index], start_index, 100)))
+
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
